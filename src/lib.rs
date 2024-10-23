@@ -1,68 +1,87 @@
-//!
-//! Stylus Hello World
-//!
-//! The following contract implements the Counter example from Foundry.
-//!
-//! ```
-//! contract Counter {
-//!     uint256 public number;
-//!     function setNumber(uint256 newNumber) public {
-//!         number = newNumber;
-//!     }
-//!     function increment() public {
-//!         number++;
-//!     }
-//! }
-//! ```
-//!
-//! The program is ABI-equivalent with Solidity, which means you can call it from both Solidity and Rust.
-//! To do this, run `cargo stylus export-abi`.
-//!
-//! Note: this code is a template-only and has not been audited.
-//!
-
-// Allow `cargo stylus export-abi` to generate a main function.
 #![cfg_attr(not(feature = "export-abi"), no_main)]
+
 extern crate alloc;
 
-/// Import items from the SDK. The prelude contains common traits and macros.
-use stylus_sdk::{alloy_primitives::U256, prelude::*};
+extern crate stylus_sdk;
+use stylus_sdk::{
+    alloy_primitives::{Address, U256},
+    alloy_sol_types::sol,
+    call::{Call, Error},
+    msg,
+    prelude::*,
+};
 
-// Define some persistent storage using the Solidity ABI.
-// `Counter` will be the entrypoint.
-sol_storage! {
-    #[entrypoint]
-    pub struct Counter {
-        uint256 number;
+sol! {
+    error InvalidDepositAmount();
+    error InvalidEndpoint();
+    error PropagationError();
+}
+
+sol_interface! {
+    interface ICrossChainMessenger {
+        function propagate(string _message) external;
     }
 }
 
-/// Declare that `Counter` is a contract with the following external methods.
+#[derive(SolidityError)]
+pub enum ContractErrors {
+    InvalidDepositAmount(InvalidDepositAmount),
+    InvalidEndpoint(InvalidEndpoint),
+    PropagationError(PropagationError),
+}
+
+sol_storage! {
+    #[entrypoint]
+    pub struct Balances {
+        mapping(address => uint256) balances;
+        address cross_chain_messenger;
+    }
+}
+
 #[public]
-impl Counter {
-    /// Gets the number from storage.
-    pub fn number(&self) -> U256 {
-        self.number.get()
+impl Balances {
+    pub fn init(&mut self, messenger_address: Address) -> Result<(), ContractErrors> {
+        if messenger_address.is_zero() {
+            return Err(ContractErrors::InvalidEndpoint(InvalidEndpoint {}));
+        }
+        self.cross_chain_messenger.set(messenger_address);
+        Ok(())
     }
 
-    /// Sets a number in storage to a user-specified value.
-    pub fn set_number(&mut self, new_number: U256) {
-        self.number.set(new_number);
+    #[payable]
+    pub fn deposit(&mut self) -> Result<(), ContractErrors> {
+        if msg::value().is_zero() {
+            return Err(ContractErrors::InvalidDepositAmount(
+                InvalidDepositAmount {},
+            ));
+        }
+
+        if self.cross_chain_messenger.get().is_zero() {
+            return Err(ContractErrors::InvalidEndpoint(InvalidEndpoint {}));
+        }
+
+        let mut user_balance = self.balances.setter(msg::sender());
+        let current_balance: U256 = user_balance.get();
+        user_balance.set(current_balance + msg::value());
+
+        let messenger: ICrossChainMessenger = ICrossChainMessenger::new(*self.cross_chain_messenger);
+        let message: String = format!(
+            "User: {:?}, Deposited Amount: {:?}",
+            msg::sender(),
+            msg::value()
+        );
+        let result: Result<(), Error> = messenger.propagate(Call::new_in(self), message);
+
+        match result {
+            Ok(_) => Ok(()),
+
+            Err(_) => {
+                return Err(ContractErrors::PropagationError(PropagationError {}));
+            }
+        }
     }
 
-    /// Sets a number in storage to a user-specified value.
-    pub fn mul_number(&mut self, new_number: U256) {
-        self.number.set(new_number * self.number.get());
-    }
-
-    /// Sets a number in storage to a user-specified value.
-    pub fn add_number(&mut self, new_number: U256) {
-        self.number.set(new_number + self.number.get());
-    }
-
-    /// Increments `number` and updates its value in storage.
-    pub fn increment(&mut self) {
-        let number = self.number.get();
-        self.set_number(number + U256::from(1));
+    pub fn get_balance(&self, user: Address) -> U256 {
+        self.balances.get(user)
     }
 }
