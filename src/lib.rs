@@ -14,12 +14,12 @@ use stylus_sdk::{
 sol! {
     error InvalidDepositAmount();
     error InvalidEndpoint();
-    error PropagationError();
+    error PropagationError(string result);
 }
 
 sol_interface! {
     interface ICrossChainMessenger {
-        function propagate(string _message) external;
+        function send(uint32 _dst_eid, string calldata _message) external payable;
     }
 }
 
@@ -49,7 +49,7 @@ impl Balances {
     }
 
     #[payable]
-    pub fn deposit(&mut self) -> Result<(), ContractErrors> {
+    pub fn deposit(&mut self, quote: U256) -> Result<(), ContractErrors> {
         if msg::value().is_zero() {
             return Err(ContractErrors::InvalidDepositAmount(
                 InvalidDepositAmount {},
@@ -64,24 +64,29 @@ impl Balances {
         let current_balance: U256 = user_balance.get();
         user_balance.set(current_balance + msg::value());
 
-        let messenger: ICrossChainMessenger = ICrossChainMessenger::new(*self.cross_chain_messenger);
+        let messenger: ICrossChainMessenger =
+            ICrossChainMessenger::new(*self.cross_chain_messenger);
         let message: String = format!(
             "User: {:?}, Deposited Amount: {:?}",
             msg::sender(),
-            msg::value()
+            msg::value() - quote
         );
-        let result: Result<(), Error> = messenger.propagate(Call::new_in(self), message);
+        let result: Result<(), Error> = messenger.send(Call::new_in(self).value(quote), 40267, message);
 
         match result {
             Ok(_) => Ok(()),
 
             Err(_) => {
-                return Err(ContractErrors::PropagationError(PropagationError {}));
+                return Err(ContractErrors::PropagationError(PropagationError { result: format!("{:?}", result.err().unwrap()) }));   
             }
         }
     }
 
     pub fn get_balance(&self, user: Address) -> U256 {
         self.balances.get(user)
+    }
+
+    pub fn get_cross_chain_messenger(&self) -> Address {
+        self.cross_chain_messenger.get()
     }
 }
