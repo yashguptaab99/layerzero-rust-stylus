@@ -33,13 +33,36 @@ pub enum ContractErrors {
 sol_storage! {
     #[entrypoint]
     pub struct Balances {
+        /// Mapping from user addresses to their respective balances.
+        /// 
+        /// This mapping keeps track of the token balances for each user address.
         mapping(address => uint256) balances;
+
+        /// Address of the cross-chain messenger.
+        /// 
+        /// This address is used to interact with the cross-chain messaging system.
         address cross_chain_messenger;
     }
 }
 
 #[public]
 impl Balances {
+
+    /// Initializes the contract with the given messenger address.
+    ///
+    /// # Arguments
+    ///
+    /// * `messenger_address` - The address of the messenger to be set.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), ContractErrors>` - Returns `Ok(())` if the initialization is successful,
+    ///   otherwise returns an error of type `ContractErrors`.
+    ///
+    /// # Errors
+    ///
+    /// * `ContractErrors::InvalidEndpoint` - If the provided `messenger_address` is zero.
+    /// ```
     pub fn init(&mut self, messenger_address: Address) -> Result<(), ContractErrors> {
         if messenger_address.is_zero() {
             return Err(ContractErrors::InvalidEndpoint(InvalidEndpoint {}));
@@ -48,6 +71,23 @@ impl Balances {
         Ok(())
     }
 
+    /// Allows a user to deposit a specified amount of tokens into the contract.
+    ///
+    /// # Arguments
+    ///
+    /// * `quote` - The amount of tokens to be quoted for the deposit.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), ContractErrors>` - Returns `Ok(())` if the deposit is successful,
+    ///   otherwise returns an error of type `ContractErrors`.
+    ///
+    /// # Errors
+    ///
+    /// * `ContractErrors::InvalidDepositAmount` - If the deposited amount is zero.
+    /// * `ContractErrors::InvalidEndpoint` - If the cross-chain messenger address is zero.
+    /// * `ContractErrors::PropagationError` - If there is an error propagating the message.
+    /// ```
     #[payable]
     pub fn deposit(&mut self, quote: U256) -> Result<(), ContractErrors> {
         if msg::value().is_zero() {
@@ -82,10 +122,26 @@ impl Balances {
         }
     }
 
+    /// Retrieves the balance of a specified user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user` - The address of the user whose balance is to be retrieved.
+    ///
+    /// # Returns
+    ///
+    /// * `U256` - The balance of the specified user.
+    /// ```
     pub fn get_balance(&self, user: Address) -> U256 {
         self.balances.get(user)
     }
 
+    /// Retrieves the address of the cross-chain messenger.
+    ///
+    /// # Returns
+    ///
+    /// * `Address` - The address of the cross-chain messenger.
+    /// ```
     pub fn get_cross_chain_messenger(&self) -> Address {
         self.cross_chain_messenger.get()
     }
